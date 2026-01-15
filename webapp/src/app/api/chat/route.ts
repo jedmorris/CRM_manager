@@ -1,0 +1,360 @@
+import { NextRequest, NextResponse } from 'next/server'
+import Anthropic from '@anthropic-ai/sdk'
+import { createClient } from '@/lib/supabase/server'
+import { clickUpOperations } from '@/lib/clickup'
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+})
+
+// Define tools that Claude can use
+const tools: Anthropic.Tool[] = [
+  {
+    name: 'get_workspaces',
+    description: 'Get all ClickUp workspaces the user has access to',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'get_spaces',
+    description: 'Get all spaces in a workspace',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        team_id: {
+          type: 'string',
+          description: 'The workspace/team ID',
+        },
+      },
+      required: ['team_id'],
+    },
+  },
+  {
+    name: 'get_lists',
+    description: 'Get all lists in a space',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        space_id: {
+          type: 'string',
+          description: 'The space ID',
+        },
+      },
+      required: ['space_id'],
+    },
+  },
+  {
+    name: 'get_tasks',
+    description: 'Get all tasks in a list',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        list_id: {
+          type: 'string',
+          description: 'The list ID',
+        },
+      },
+      required: ['list_id'],
+    },
+  },
+  {
+    name: 'get_task',
+    description: 'Get details of a specific task',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        task_id: {
+          type: 'string',
+          description: 'The task ID',
+        },
+      },
+      required: ['task_id'],
+    },
+  },
+  {
+    name: 'create_task',
+    description: 'Create a new task in a list',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        list_id: {
+          type: 'string',
+          description: 'The list ID where the task will be created',
+        },
+        name: {
+          type: 'string',
+          description: 'The name of the task',
+        },
+        description: {
+          type: 'string',
+          description: 'The description of the task',
+        },
+        priority: {
+          type: 'number',
+          description: 'Priority level (1=urgent, 2=high, 3=normal, 4=low)',
+        },
+        due_date: {
+          type: 'number',
+          description: 'Due date as Unix timestamp in milliseconds',
+        },
+      },
+      required: ['list_id', 'name'],
+    },
+  },
+  {
+    name: 'update_task',
+    description: 'Update an existing task',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        task_id: {
+          type: 'string',
+          description: 'The task ID to update',
+        },
+        name: {
+          type: 'string',
+          description: 'New name for the task',
+        },
+        description: {
+          type: 'string',
+          description: 'New description for the task',
+        },
+        status: {
+          type: 'string',
+          description: 'New status for the task',
+        },
+        priority: {
+          type: 'number',
+          description: 'New priority level',
+        },
+      },
+      required: ['task_id'],
+    },
+  },
+  {
+    name: 'add_comment',
+    description: 'Add a comment to a task',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        task_id: {
+          type: 'string',
+          description: 'The task ID',
+        },
+        comment: {
+          type: 'string',
+          description: 'The comment text',
+        },
+      },
+      required: ['task_id', 'comment'],
+    },
+  },
+  {
+    name: 'search_tasks',
+    description: 'Search for tasks by name or keyword',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        team_id: {
+          type: 'string',
+          description: 'The workspace/team ID to search in',
+        },
+        query: {
+          type: 'string',
+          description: 'The search query',
+        },
+      },
+      required: ['team_id', 'query'],
+    },
+  },
+]
+
+// Execute a tool call
+async function executeTool(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  accessToken: string
+): Promise<string> {
+  try {
+    switch (toolName) {
+      case 'get_workspaces': {
+        const result = await clickUpOperations.getWorkspaces(accessToken)
+        return JSON.stringify(result, null, 2)
+      }
+      case 'get_spaces': {
+        const result = await clickUpOperations.getSpaces(
+          accessToken,
+          toolInput.team_id as string
+        )
+        return JSON.stringify(result, null, 2)
+      }
+      case 'get_lists': {
+        const result = await clickUpOperations.getLists(
+          accessToken,
+          toolInput.space_id as string
+        )
+        return JSON.stringify(result, null, 2)
+      }
+      case 'get_tasks': {
+        const result = await clickUpOperations.getTasks(
+          accessToken,
+          toolInput.list_id as string
+        )
+        return JSON.stringify(result, null, 2)
+      }
+      case 'get_task': {
+        const result = await clickUpOperations.getTask(
+          accessToken,
+          toolInput.task_id as string
+        )
+        return JSON.stringify(result, null, 2)
+      }
+      case 'create_task': {
+        const result = await clickUpOperations.createTask(
+          accessToken,
+          toolInput.list_id as string,
+          {
+            name: toolInput.name as string,
+            description: toolInput.description as string | undefined,
+            priority: toolInput.priority as number | undefined,
+            due_date: toolInput.due_date as number | undefined,
+          }
+        )
+        return JSON.stringify(result, null, 2)
+      }
+      case 'update_task': {
+        const result = await clickUpOperations.updateTask(
+          accessToken,
+          toolInput.task_id as string,
+          {
+            name: toolInput.name as string | undefined,
+            description: toolInput.description as string | undefined,
+            status: toolInput.status as string | undefined,
+            priority: toolInput.priority as number | undefined,
+          }
+        )
+        return JSON.stringify(result, null, 2)
+      }
+      case 'add_comment': {
+        const result = await clickUpOperations.addComment(
+          accessToken,
+          toolInput.task_id as string,
+          toolInput.comment as string
+        )
+        return JSON.stringify(result, null, 2)
+      }
+      case 'search_tasks': {
+        const result = await clickUpOperations.searchTasks(
+          accessToken,
+          toolInput.team_id as string,
+          toolInput.query as string
+        )
+        return JSON.stringify(result, null, 2)
+      }
+      default:
+        return JSON.stringify({ error: `Unknown tool: ${toolName}` })
+    }
+  } catch (error) {
+    return JSON.stringify({
+      error: error instanceof Error ? error.message : 'Unknown error',
+    })
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    // Get user and their ClickUp token
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Get user's ClickUp access token
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('clickup_access_token')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile?.clickup_access_token) {
+      return NextResponse.json(
+        { error: 'ClickUp not connected' },
+        { status: 400 }
+      )
+    }
+
+    const { messages } = await request.json()
+
+    // Initial Claude call
+    let response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4096,
+      system: `You are a helpful assistant that helps users manage their ClickUp workspace.
+You have access to tools that can interact with ClickUp to get information and perform actions.
+Always be helpful and proactive in using the tools to accomplish what the user asks.
+When listing items, format them nicely for readability.
+If you need to know the workspace/team ID first, call get_workspaces to find it.`,
+      tools,
+      messages,
+    })
+
+    // Handle tool use in a loop
+    while (response.stop_reason === 'tool_use') {
+      const toolUseBlocks = response.content.filter(
+        (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
+      )
+
+      const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
+        toolUseBlocks.map(async (toolUse) => {
+          const result = await executeTool(
+            toolUse.name,
+            toolUse.input as Record<string, unknown>,
+            profile.clickup_access_token
+          )
+          return {
+            type: 'tool_result' as const,
+            tool_use_id: toolUse.id,
+            content: result,
+          }
+        })
+      )
+
+      // Continue the conversation with tool results
+      response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        system: `You are a helpful assistant that helps users manage their ClickUp workspace.
+You have access to tools that can interact with ClickUp to get information and perform actions.
+Always be helpful and proactive in using the tools to accomplish what the user asks.
+When listing items, format them nicely for readability.
+If you need to know the workspace/team ID first, call get_workspaces to find it.`,
+        tools,
+        messages: [
+          ...messages,
+          { role: 'assistant', content: response.content },
+          { role: 'user', content: toolResults },
+        ],
+      })
+    }
+
+    // Extract text response
+    const textContent = response.content.find(
+      (block): block is Anthropic.TextBlock => block.type === 'text'
+    )
+
+    return NextResponse.json({
+      message: textContent?.text || 'No response generated',
+    })
+  } catch (error) {
+    console.error('Chat API error:', error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
