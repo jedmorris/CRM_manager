@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS profiles (
   clickup_access_token TEXT,
   clickup_user_id TEXT,
   clickup_username TEXT,
+  google_access_token TEXT,
+  google_refresh_token TEXT,
+  google_email TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

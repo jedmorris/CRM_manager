@@ -14,6 +14,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [clickUpConnected, setClickUpConnected] = useState(false)
   const [clickUpUsername, setClickUpUsername] = useState<string | null>(null)
+  const [gmailConnected, setGmailConnected] = useState(false)
+  const [gmailEmail, setGmailEmail] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -37,10 +39,10 @@ export default function Dashboard() {
       return
     }
 
-    // Check if ClickUp is connected
+    // Check if ClickUp and Gmail are connected
     const { data: profile } = await supabase
       .from('profiles')
-      .select('clickup_access_token, clickup_username')
+      .select('clickup_access_token, clickup_username, google_access_token, google_email')
       .eq('id', user.id)
       .single()
 
@@ -49,13 +51,34 @@ export default function Dashboard() {
       setClickUpUsername(profile.clickup_username)
     }
 
+    if (profile?.google_access_token) {
+      setGmailConnected(true)
+      setGmailEmail(profile.google_email)
+    }
+
     setLoading(false)
   }
 
   const connectClickUp = async () => {
-    const response = await fetch('/api/clickup/auth-url')
-    const { url } = await response.json()
-    window.location.href = url
+    try {
+      const response = await fetch('/api/clickup/auth-url')
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Failed to get auth URL')
+      window.location.href = data.url
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'An error occurred')
+    }
+  }
+
+  const connectGmail = async () => {
+    try {
+      const response = await fetch('/api/google/auth-url')
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Failed to get auth URL')
+      window.location.href = data.url
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'An error occurred')
+    }
   }
 
   const handleSignOut = async () => {
@@ -149,6 +172,20 @@ export default function Dashboard() {
                 Connect ClickUp
               </button>
             )}
+
+            {gmailConnected ? (
+              <div className="flex items-center gap-2 text-green-400">
+                <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+                <span className="text-sm">{gmailEmail}</span>
+              </div>
+            ) : (
+              <button
+                onClick={connectGmail}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                Connect Gmail
+              </button>
+            )}
             <button
               onClick={handleSignOut}
               className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors"
@@ -203,16 +240,14 @@ export default function Dashboard() {
                 messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`flex ${
-                      message.role === 'user' ? 'justify-end' : 'justify-start'
-                    }`}
+                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'
+                      }`}
                   >
                     <div
-                      className={`max-w-[80%] px-4 py-3 rounded-2xl ${
-                        message.role === 'user'
-                          ? 'bg-purple-600 text-white'
-                          : 'bg-gray-800 text-gray-100'
-                      }`}
+                      className={`max-w-[80%] px-4 py-3 rounded-2xl ${message.role === 'user'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-800 text-gray-100'
+                        }`}
                     >
                       <p className="whitespace-pre-wrap">{message.content}</p>
                     </div>

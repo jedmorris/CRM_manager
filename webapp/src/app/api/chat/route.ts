@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { clickUpOperations } from '@/lib/clickup'
+import { sendEmail, refreshGoogleToken } from '@/lib/google'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -9,6 +10,32 @@ const anthropic = new Anthropic({
 
 // Define tools that Claude can use
 const tools: Anthropic.Tool[] = [
+  {
+    name: 'send_email',
+    description: 'Send an email via Gmail and log it to a ClickUp task',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        to: {
+          type: 'string',
+          description: 'Recipient email address',
+        },
+        subject: {
+          type: 'string',
+          description: 'Email subject',
+        },
+        body: {
+          type: 'string',
+          description: 'Email body content',
+        },
+        task_id: {
+          type: 'string',
+          description: 'The ClickUp Task ID to log the email to',
+        },
+      },
+      required: ['to', 'subject', 'body', 'task_id'],
+    },
+  },
   {
     name: 'get_workspaces',
     description: 'Get all ClickUp workspaces the user has access to',
@@ -275,10 +302,56 @@ const tools: Anthropic.Tool[] = [
 async function executeTool(
   toolName: string,
   toolInput: Record<string, unknown>,
-  accessToken: string
+  profile: any
 ): Promise<string> {
   try {
+    const accessToken = profile.clickup_access_token
+
     switch (toolName) {
+      case 'send_email': {
+        if (!profile.google_access_token) {
+          throw new Error('Gmail is not connected. Please connect Gmail in the dashboard.')
+        }
+
+        try {
+          await sendEmail(
+            profile.google_access_token,
+            toolInput.to as string,
+            toolInput.subject as string,
+            toolInput.body as string
+          )
+        } catch (error) {
+          // Attempt token refresh if failed
+          if (profile.google_refresh_token) {
+            try {
+              const newTokens = await refreshGoogleToken(profile.google_refresh_token)
+              // In a real app we would update the DB here. 
+              // For now, let's try sending again with new token
+              await sendEmail(
+                newTokens.access_token,
+                toolInput.to as string,
+                toolInput.subject as string,
+                toolInput.body as string
+              )
+            } catch (refreshError) {
+              throw error // Original error
+            }
+          } else {
+            throw error
+          }
+        }
+
+        // Log to ClickUp if we have an access token
+        if (accessToken) {
+          await clickUpOperations.addComment(
+            accessToken,
+            toolInput.task_id as string,
+            `📧 **Email Sent via Gmail**\n\n**To:** ${toolInput.to}\n**Subject:** ${toolInput.subject}\n\n${toolInput.body}`
+          )
+        }
+
+        return JSON.stringify({ success: true, message: 'Email sent and logged to task.' })
+      }
       case 'get_workspaces': {
         const result = await clickUpOperations.getWorkspaces(accessToken)
         return JSON.stringify(result, null, 2)
@@ -415,10 +488,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get user's ClickUp access token
+    // Get user's profile with tokens
     const { data: profile } = await supabase
       .from('profiles')
-      .select('clickup_access_token')
+      .select('clickup_access_token, google_access_token, google_refresh_token')
       .eq('id', user.id)
       .single()
 
@@ -437,6 +510,8 @@ export async function POST(request: NextRequest) {
       max_tokens: 4096,
       system: `You are a helpful assistant that helps users manage their ClickUp workspace.
 You have access to tools that can interact with ClickUp to get information and perform actions.
+You also have the ability to send emails via Gmail.
+When asked to send an email, use the send_email tool. This tool will automatically log the email to the specified ClickUp task.
 Always be helpful and proactive in using the tools to accomplish what the user asks.
 When listing items, format them nicely for readability.
 If you need to know the workspace/team ID first, call get_workspaces to find it.`,
@@ -455,7 +530,7 @@ If you need to know the workspace/team ID first, call get_workspaces to find it.
           const result = await executeTool(
             toolUse.name,
             toolUse.input as Record<string, unknown>,
-            profile.clickup_access_token
+            profile
           )
           return {
             type: 'tool_result' as const,
@@ -471,6 +546,8 @@ If you need to know the workspace/team ID first, call get_workspaces to find it.
         max_tokens: 4096,
         system: `You are a helpful assistant that helps users manage their ClickUp workspace.
 You have access to tools that can interact with ClickUp to get information and perform actions.
+You also have the ability to send emails via Gmail.
+When asked to send an email, use the send_email tool. This tool will automatically log the email to the specified ClickUp task.
 Always be helpful and proactive in using the tools to accomplish what the user asks.
 When listing items, format them nicely for readability.
 If you need to know the workspace/team ID first, call get_workspaces to find it.`,
