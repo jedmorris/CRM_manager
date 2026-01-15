@@ -134,4 +134,57 @@ export const clickUpOperations = {
       `/team/${teamId}/task?query=${encodeURIComponent(query)}`
     )
   },
+
+  // Structural Creation
+  async createSpace(accessToken: string, teamId: string, name: string, isPrivate: boolean = false) {
+    return clickUpRequest(accessToken, `/team/${teamId}/space`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        multiple_assignees: true,
+        features: {
+          due_dates: { enabled: true, start_date: true, remap_due_dates: true, remap_closed_due_date: false },
+          time_tracking: { enabled: false },
+          tags: { enabled: true },
+          time_estimates: { enabled: false },
+          checklists: { enabled: true },
+          custom_fields: { enabled: true },
+          remap_dependencies: { enabled: true },
+          dependency_warning: { enabled: true },
+          portfolios: { enabled: true }
+        },
+        private: isPrivate
+      })
+    })
+  },
+
+  async createFolder(accessToken: string, spaceId: string, name: string) {
+    return clickUpRequest(accessToken, `/space/${spaceId}/folder`, {
+      method: 'POST',
+      body: JSON.stringify({ name })
+    })
+  },
+
+  async createList(accessToken: string, parentId: string, name: string, parentType: 'space' | 'folder' = 'space') {
+    const endpoint = parentType === 'folder'
+      ? `/folder/${parentId}/list`
+      : `/space/${parentId}/list`
+
+    return clickUpRequest(accessToken, endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ name })
+    })
+  },
+
+  // Custom Fields
+  async getCustomFields(accessToken: string, listId: string) {
+    return clickUpRequest(accessToken, `/list/${listId}/field`)
+  },
+
+  async setCustomFieldValue(accessToken: string, taskId: string, fieldId: string, value: any) {
+    return clickUpRequest(accessToken, `/task/${taskId}/field/${fieldId}`, {
+      method: 'POST',
+      body: JSON.stringify({ value })
+    })
+  },
 }

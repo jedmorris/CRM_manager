@@ -170,6 +170,105 @@ const tools: Anthropic.Tool[] = [
       required: ['team_id', 'query'],
     },
   },
+  {
+    name: 'create_space',
+    description: 'Create a new Space in a workspace',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        team_id: {
+          type: 'string',
+          description: 'The workspace/team ID',
+        },
+        name: {
+          type: 'string',
+          description: 'The name of the new Space',
+        },
+        is_private: {
+          type: 'boolean',
+          description: 'Whether the space should be private (default: false)',
+        },
+      },
+      required: ['team_id', 'name'],
+    },
+  },
+  {
+    name: 'create_folder',
+    description: 'Create a new Folder in a Space',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        space_id: {
+          type: 'string',
+          description: 'The Space ID',
+        },
+        name: {
+          type: 'string',
+          description: 'The name of the new Folder',
+        },
+      },
+      required: ['space_id', 'name'],
+    },
+  },
+  {
+    name: 'create_list',
+    description: 'Create a new List in a Space or Folder',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        parent_id: {
+          type: 'string',
+          description: 'The Space ID or Folder ID',
+        },
+        name: {
+          type: 'string',
+          description: 'The name of the new List',
+        },
+        parent_type: {
+          type: 'string',
+          enum: ['space', 'folder'],
+          description: 'Whether the parent is a space or folder (default: space)',
+        },
+      },
+      required: ['parent_id', 'name'],
+    },
+  },
+  {
+    name: 'get_custom_fields',
+    description: 'Get all custom fields available in a list',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        list_id: {
+          type: 'string',
+          description: 'The list ID',
+        },
+      },
+      required: ['list_id'],
+    },
+  },
+  {
+    name: 'set_custom_field',
+    description: 'Set the value of a custom field on a task',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        task_id: {
+          type: 'string',
+          description: 'The task ID',
+        },
+        field_id: {
+          type: 'string',
+          description: 'The custom field ID (get this from get_custom_fields)',
+        },
+        value: {
+          type: 'object', // Explicitly allow any type here since custom fields values vary widely
+          description: 'The value to set (string for text/dropdown/email/phone, number for numbers)',
+        },
+      },
+      required: ['task_id', 'field_id', 'value'],
+    },
+  }
 ]
 
 // Execute a tool call
@@ -251,6 +350,48 @@ async function executeTool(
           accessToken,
           toolInput.team_id as string,
           toolInput.query as string
+        )
+        return JSON.stringify(result, null, 2)
+      }
+      case 'create_space': {
+        const result = await clickUpOperations.createSpace(
+          accessToken,
+          toolInput.team_id as string,
+          toolInput.name as string,
+          toolInput.is_private as boolean
+        )
+        return JSON.stringify(result, null, 2)
+      }
+      case 'create_folder': {
+        const result = await clickUpOperations.createFolder(
+          accessToken,
+          toolInput.space_id as string,
+          toolInput.name as string
+        )
+        return JSON.stringify(result, null, 2)
+      }
+      case 'create_list': {
+        const result = await clickUpOperations.createList(
+          accessToken,
+          toolInput.parent_id as string,
+          toolInput.name as string,
+          (toolInput.parent_type as 'space' | 'folder') || 'space'
+        )
+        return JSON.stringify(result, null, 2)
+      }
+      case 'get_custom_fields': {
+        const result = await clickUpOperations.getCustomFields(
+          accessToken,
+          toolInput.list_id as string
+        )
+        return JSON.stringify(result, null, 2)
+      }
+      case 'set_custom_field': {
+        const result = await clickUpOperations.setCustomFieldValue(
+          accessToken,
+          toolInput.task_id as string,
+          toolInput.field_id as string,
+          toolInput.value
         )
         return JSON.stringify(result, null, 2)
       }
