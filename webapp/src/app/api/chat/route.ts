@@ -12,7 +12,8 @@ import {
   generateAutomationSummary,
 } from '@/lib/automations'
 import { setupGmailWatch } from '@/lib/gmail-watch'
-import { CreateAutomationInput } from '@/lib/types'
+import { setupClickUpWebhookForAutomation, removeClickUpWebhookForAutomation, triggerTypeToClickUpEvents } from '@/lib/clickup-webhooks'
+import { CreateAutomationInput, ClickUpTaskTriggerConfig } from '@/lib/types'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -309,12 +310,19 @@ const tools: Anthropic.Tool[] = [
   // ========== AUTOMATION TOOLS ==========
   {
     name: 'create_automation',
-    description: `Create a background automation that runs automatically when triggered. Use this when the user asks to create automations like "whenever I get an email from X, create a task" or "automatically create tasks for emails from Y".
+    description: `Create a background automation that runs automatically when triggered.
+
+SUPPORTED TRIGGERS:
+1. Gmail triggers: "whenever I get an email from X..." -> trigger_type: 'gmail_email'
+2. ClickUp triggers: "whenever a task is updated/created..." -> trigger_type: 'clickup_task_updated', 'clickup_task_created', etc.
 
 IMPORTANT: Before creating an automation, you MUST:
-1. First get the ClickUp workspace hierarchy (workspaces -> spaces -> lists) to find the correct list_id
-2. Confirm with the user which list they want tasks created in
-3. Then create the automation with the correct list_id
+1. First get the ClickUp workspace hierarchy (get_workspaces -> get_spaces -> get_lists) to find the correct IDs
+2. Confirm with the user which workspace/list they want to use
+3. Then create the automation with the correct IDs
+
+For ClickUp triggers, you need the team_id (workspace ID) at minimum. Optionally filter by space_id, folder_id, or list_id.
+For Gmail triggers, you need gmail connected.
 
 The automation will run in the background without user intervention.`,
     input_schema: {
@@ -322,7 +330,7 @@ The automation will run in the background without user intervention.`,
       properties: {
         name: {
           type: 'string',
-          description: 'A short descriptive name for the automation (e.g., "Email from John -> Task")',
+          description: 'A short descriptive name for the automation (e.g., "Task Updated -> Email Notification")',
         },
         description: {
           type: 'string',
@@ -330,64 +338,76 @@ The automation will run in the background without user intervention.`,
         },
         trigger_type: {
           type: 'string',
-          enum: ['gmail_email', 'gmail_label', 'schedule'],
-          description: 'The type of trigger. Use gmail_email for "when I receive an email..."',
+          enum: [
+            'gmail_email',
+            'gmail_label',
+            'clickup_task_created',
+            'clickup_task_updated',
+            'clickup_task_deleted',
+            'clickup_task_status_updated',
+            'clickup_task_assignee_updated',
+            'clickup_task_comment_posted',
+          ],
+          description: `The type of trigger:
+- gmail_email: When an email is received
+- clickup_task_created: When a new task is created
+- clickup_task_updated: When any task field is updated
+- clickup_task_status_updated: When a task status changes
+- clickup_task_assignee_updated: When task assignees change
+- clickup_task_comment_posted: When a comment is added to a task
+- clickup_task_deleted: When a task is deleted`,
         },
         trigger_config: {
           type: 'object',
-          description: `Configuration for the trigger. For gmail_email: { from_filter?: string, to_filter?: string, subject_contains?: string, has_attachment?: boolean }`,
+          description: `Configuration for the trigger.
+
+For gmail_email: { from_filter?: string, to_filter?: string, subject_contains?: string, has_attachment?: boolean }
+
+For clickup_* triggers: { team_id: string (REQUIRED), space_id?: string, folder_id?: string, list_id?: string, list_name?: string }
+- team_id is the workspace ID (get from get_workspaces)
+- Optionally filter to specific space/folder/list`,
           properties: {
-            from_filter: {
-              type: 'string',
-              description: 'Filter emails from this sender (partial match)',
-            },
-            to_filter: {
-              type: 'string',
-              description: 'Filter emails sent to this address (partial match)',
-            },
-            subject_contains: {
-              type: 'string',
-              description: 'Filter emails with subject containing this text',
-            },
-            has_attachment: {
-              type: 'boolean',
-              description: 'Filter emails that have attachments',
-            },
+            // Gmail properties
+            from_filter: { type: 'string', description: 'Filter emails from this sender' },
+            to_filter: { type: 'string', description: 'Filter emails to this recipient' },
+            subject_contains: { type: 'string', description: 'Filter by subject text' },
+            has_attachment: { type: 'boolean', description: 'Filter by attachment presence' },
+            // ClickUp properties
+            team_id: { type: 'string', description: 'ClickUp workspace/team ID (REQUIRED for ClickUp triggers)' },
+            space_id: { type: 'string', description: 'Filter to specific space' },
+            folder_id: { type: 'string', description: 'Filter to specific folder' },
+            list_id: { type: 'string', description: 'Filter to specific list' },
+            list_name: { type: 'string', description: 'Human-readable list name for display' },
           },
         },
         action_type: {
           type: 'string',
           enum: ['clickup_create_task', 'clickup_add_comment', 'send_email'],
-          description: 'The type of action to perform when triggered',
+          description: 'The action to perform. For ClickUp triggers, send_email is most common.',
         },
         action_config: {
           type: 'object',
-          description: `Configuration for the action. For clickup_create_task: { list_id: string, list_name?: string, title_template: string, description_template?: string, priority?: number }.
+          description: `Configuration for the action.
 
-Use template variables like {{email.subject}}, {{email.from}}, {{email.body}}, {{email.snippet}} in templates.`,
+For send_email: { to_template: string, subject_template: string, body_template: string }
+
+For clickup_create_task: { list_id: string, title_template: string, description_template?: string, priority?: number }
+
+Template variables for Gmail triggers: {{email.subject}}, {{email.from}}, {{email.body}}, {{email.snippet}}
+
+Template variables for ClickUp triggers: {{task.name}}, {{task.status}}, {{task.url}}, {{task.assignees}}, {{task.priority}}, {{task.list_name}}, {{task.space_name}}, {{event}}, {{change_summary}}`,
           properties: {
-            list_id: {
-              type: 'string',
-              description: 'The ClickUp list ID where tasks will be created (REQUIRED - get this from get_lists)',
-            },
-            list_name: {
-              type: 'string',
-              description: 'Human-readable name of the list (for display purposes)',
-            },
-            title_template: {
-              type: 'string',
-              description: 'Template for task title. Use {{email.subject}} for email subject, etc.',
-            },
-            description_template: {
-              type: 'string',
-              description: 'Template for task description. Use {{email.body}}, {{email.from}}, etc.',
-            },
-            priority: {
-              type: 'number',
-              description: 'Task priority (1=urgent, 2=high, 3=normal, 4=low)',
-            },
+            // send_email properties
+            to_template: { type: 'string', description: 'Email recipient (can use templates)' },
+            subject_template: { type: 'string', description: 'Email subject template' },
+            body_template: { type: 'string', description: 'Email body template' },
+            // clickup_create_task properties
+            list_id: { type: 'string', description: 'List ID for new tasks' },
+            list_name: { type: 'string', description: 'Human-readable list name' },
+            title_template: { type: 'string', description: 'Task title template' },
+            description_template: { type: 'string', description: 'Task description template' },
+            priority: { type: 'number', description: 'Task priority (1-4)' },
           },
-          required: ['list_id', 'title_template'],
         },
       },
       required: ['name', 'trigger_type', 'trigger_config', 'action_type', 'action_config'],
@@ -620,15 +640,38 @@ async function executeTool(
       }
       // ========== AUTOMATION TOOL HANDLERS ==========
       case 'create_automation': {
-        if (!profile.google_access_token) {
+        const triggerType = toolInput.trigger_type as string
+        const isGmailTrigger = triggerType.startsWith('gmail_')
+        const isClickUpTrigger = triggerType.startsWith('clickup_')
+
+        // Validate required tokens based on trigger/action type
+        if (isGmailTrigger && !profile.google_access_token) {
           throw new Error('Gmail is not connected. Please connect Gmail first to create email-based automations.')
+        }
+        if (isClickUpTrigger && !accessToken) {
+          throw new Error('ClickUp is not connected. Please connect ClickUp first to create ClickUp-triggered automations.')
+        }
+        // For send_email action, we need Gmail
+        if (toolInput.action_type === 'send_email' && !profile.google_access_token) {
+          throw new Error('Gmail is not connected. Please connect Gmail to use the send_email action.')
+        }
+
+        // Build trigger config with events array for ClickUp triggers
+        let triggerConfig = toolInput.trigger_config as Record<string, unknown>
+        if (isClickUpTrigger) {
+          // Add the events array based on trigger type
+          const events = triggerTypeToClickUpEvents(triggerType)
+          triggerConfig = {
+            ...triggerConfig,
+            events,
+          }
         }
 
         const automationInput = {
           name: toolInput.name as string,
           description: toolInput.description as string | undefined,
-          trigger_type: toolInput.trigger_type,
-          trigger_config: toolInput.trigger_config,
+          trigger_type: triggerType,
+          trigger_config: triggerConfig,
           action_type: toolInput.action_type,
           action_config: toolInput.action_config,
         } as CreateAutomationInput
@@ -636,13 +679,14 @@ async function executeTool(
         // Create the automation
         const automation = await createAutomation(supabase, userId, automationInput)
 
-        // If this is a Gmail trigger, set up the Gmail watch
-        if (automation.trigger_type.startsWith('gmail_')) {
+        // Set up webhook based on trigger type
+        if (isGmailTrigger) {
+          // Gmail trigger: set up Gmail watch
           try {
             await setupGmailWatch(
               supabase,
               automation.id,
-              profile.google_access_token,
+              profile.google_access_token!,
               profile.google_refresh_token || null
             )
           } catch (watchError) {
@@ -651,6 +695,27 @@ async function executeTool(
             return JSON.stringify({
               success: false,
               error: 'Automation created but Gmail watch setup failed. This may be due to Gmail API permissions. Please reconnect Gmail with the required permissions.',
+              automation_id: automation.id,
+            })
+          }
+        } else if (isClickUpTrigger) {
+          // ClickUp trigger: set up ClickUp webhook
+          try {
+            const clickUpConfig = triggerConfig as unknown as ClickUpTaskTriggerConfig
+            await setupClickUpWebhookForAutomation(
+              supabase,
+              automation.id,
+              automation.webhook_id!, // Our internal webhook ID for the callback URL
+              accessToken,
+              clickUpConfig
+            )
+          } catch (webhookError) {
+            // Update automation status to indicate setup issue
+            await updateAutomationStatus(supabase, automation.id, 'error')
+            const errorMsg = webhookError instanceof Error ? webhookError.message : 'Unknown error'
+            return JSON.stringify({
+              success: false,
+              error: `Automation created but ClickUp webhook setup failed: ${errorMsg}. Please check your ClickUp permissions.`,
               automation_id: automation.id,
             })
           }
@@ -763,23 +828,71 @@ export async function POST(request: NextRequest) {
 ## Your Capabilities:
 1. **ClickUp Management**: Get/create workspaces, spaces, folders, lists, and tasks
 2. **Email**: Send emails via Gmail and log them to ClickUp tasks
-3. **Background Automations**: Create automations that run automatically (e.g., "when I get an email from X, create a task")
+3. **Background Automations**: Create automations that run automatically in both directions:
+   - Gmail → ClickUp: "when I get an email from X, create a task"
+   - ClickUp → Email: "when a task is updated, send me an email notification"
 
 ## Automation Guidelines:
-When a user asks to create an automation (e.g., "whenever I get an email from...", "automatically create a task when..."):
+
+### Creating Gmail-Triggered Automations:
+When a user asks "whenever I get an email from...", "automatically create a task when I receive...":
 1. FIRST use get_workspaces, then get_spaces, then get_lists to find the correct list_id
 2. Ask the user to confirm which list they want tasks created in
-3. Then use create_automation with the correct list_id
+3. Use create_automation with trigger_type: 'gmail_email' and action_type: 'clickup_create_task'
 
-Available automation triggers: gmail_email (filter by sender, subject, attachments)
-Available automation actions: clickup_create_task, send_email
+### Creating ClickUp-Triggered Automations:
+When a user asks "whenever a task is updated...", "send me an email when a task changes...", "notify me when...":
+1. FIRST use get_workspaces to get the team_id (workspace ID) - this is REQUIRED
+2. Optionally use get_spaces and get_lists if they want to filter to a specific list
+3. Ask the user to confirm the scope (entire workspace, specific space, or specific list)
+4. Ask what email address they want notifications sent to
+5. Use create_automation with:
+   - trigger_type: 'clickup_task_updated' (or 'clickup_task_status_updated', 'clickup_task_created', etc.)
+   - trigger_config: { team_id: "...", list_id: "..." (optional) }
+   - action_type: 'send_email'
+   - action_config with templates using {{task.name}}, {{task.status}}, {{task.url}}, {{change_summary}}
 
-Template variables for email triggers: {{email.subject}}, {{email.from}}, {{email.to}}, {{email.body}}, {{email.snippet}}
+### Available Triggers:
+- **Gmail triggers**: gmail_email (filter by sender, subject, attachments)
+- **ClickUp triggers**:
+  - clickup_task_created: New task created
+  - clickup_task_updated: Any task field updated
+  - clickup_task_status_updated: Task status changed
+  - clickup_task_assignee_updated: Assignees changed
+  - clickup_task_comment_posted: Comment added
+  - clickup_task_deleted: Task deleted
+
+### Available Actions:
+- clickup_create_task: Create a new task
+- send_email: Send an email notification
+
+### Template Variables:
+**For Gmail triggers:** {{email.subject}}, {{email.from}}, {{email.to}}, {{email.body}}, {{email.snippet}}
+
+**For ClickUp triggers:** {{task.name}}, {{task.status}}, {{task.url}}, {{task.assignees}}, {{task.priority}}, {{task.description}}, {{task.list_name}}, {{task.folder_name}}, {{task.space_name}}, {{event}}, {{change_summary}}
+
+### Example ClickUp → Email Automation:
+User: "Send me an email whenever a task is updated in my Projects list"
+Steps:
+1. Call get_workspaces → get team_id
+2. Call get_spaces → find Projects space
+3. Call get_lists → find the specific list_id
+4. Confirm with user
+5. Create automation:
+   - trigger_type: 'clickup_task_updated'
+   - trigger_config: { team_id: "...", list_id: "..." }
+   - action_type: 'send_email'
+   - action_config: {
+       to_template: "user@email.com",
+       subject_template: "Task Updated: {{task.name}}",
+       body_template: "The task '{{task.name}}' was updated.\\n\\nChanges:\\n{{change_summary}}\\n\\nView task: {{task.url}}"
+     }
 
 ## General Guidelines:
 - Always be helpful and proactive in using tools
 - Format output nicely for readability
-- If you need workspace/team ID first, call get_workspaces`
+- ALWAYS get the workspace hierarchy first before creating automations
+- For ClickUp triggers, team_id is REQUIRED - always fetch it first`
 
     // Initial Claude call
     let response = await anthropic.messages.create({

@@ -35,9 +35,32 @@ export interface UserProfile {
 // Automation Types
 // ============================================
 
-export type TriggerType = 'gmail_email' | 'gmail_label' | 'schedule'
+export type TriggerType =
+  | 'gmail_email'
+  | 'gmail_label'
+  | 'schedule'
+  | 'clickup_task_created'
+  | 'clickup_task_updated'
+  | 'clickup_task_deleted'
+  | 'clickup_task_status_updated'
+  | 'clickup_task_assignee_updated'
+  | 'clickup_task_comment_posted'
+
 export type ActionType = 'clickup_create_task' | 'clickup_add_comment' | 'send_email'
 export type AutomationStatus = 'active' | 'paused' | 'error'
+
+// ClickUp webhook event types
+export type ClickUpWebhookEvent =
+  | 'taskCreated'
+  | 'taskUpdated'
+  | 'taskDeleted'
+  | 'taskStatusUpdated'
+  | 'taskAssigneeUpdated'
+  | 'taskCommentPosted'
+  | 'taskDueDateUpdated'
+  | 'taskTagUpdated'
+  | 'taskMoved'
+  | 'taskTimeTrackedUpdated'
 
 // Trigger configurations
 export interface GmailEmailTriggerConfig {
@@ -58,10 +81,21 @@ export interface ScheduleTriggerConfig {
   timezone: string
 }
 
+// ClickUp trigger configurations
+export interface ClickUpTaskTriggerConfig {
+  team_id: string // Workspace ID (required for webhook registration)
+  space_id?: string // Optional: filter to specific space
+  folder_id?: string // Optional: filter to specific folder
+  list_id?: string // Optional: filter to specific list
+  list_name?: string // Human-readable name for display
+  events: ClickUpWebhookEvent[] // Which events to listen for
+}
+
 export type TriggerConfig =
   | GmailEmailTriggerConfig
   | GmailLabelTriggerConfig
   | ScheduleTriggerConfig
+  | ClickUpTaskTriggerConfig
 
 // Action configurations
 export interface ClickUpCreateTaskActionConfig {
@@ -104,6 +138,7 @@ export interface Automation {
   webhook_secret: string | null
   gmail_history_id: string | null
   gmail_watch_expiration: string | null
+  clickup_webhook_id: string | null // ClickUp's webhook ID for managing/deleting
   status: AutomationStatus
   last_run_at: string | null
   last_error: string | null
