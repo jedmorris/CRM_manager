@@ -11,15 +11,11 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const GMAIL_API_URL = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
 export function getGoogleAuthUrl(): string {
-    const clientId = process.env.GOOGLE_CLIENT_ID?.trim()
-    console.log('Generating Google Auth URL. Client ID present:', !!clientId)
-    if (!clientId) {
-        console.error('GOOGLE_CLIENT_ID is missing from process.env')
-        throw new Error('GOOGLE_CLIENT_ID is not defined in .env.local')
-    }
+    const clientId = process.env.GOOGLE_CLIENT_ID
     const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/google/callback`
     const scopes = [
         'https://www.googleapis.com/auth/gmail.send',
+        'https://www.googleapis.com/auth/gmail.readonly', // For watching inbox
         'https://www.googleapis.com/auth/userinfo.email'
     ].join(' ')
 
@@ -29,24 +25,18 @@ export function getGoogleAuthUrl(): string {
 }
 
 export async function exchangeCodeForToken(code: string): Promise<GoogleTokens> {
-    const params = {
-        code,
-        client_id: process.env.GOOGLE_CLIENT_ID!.trim(),
-        client_secret: process.env.GOOGLE_CLIENT_SECRET!.trim(),
-        redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL}/api/google/callback`,
-        grant_type: 'authorization_code',
-    }
-    console.log('Exchanging code for token with params:', {
-        ...params,
-        client_secret: '***' // Mask secret
-    })
-
     const response = await fetch(GOOGLE_TOKEN_URL, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: new URLSearchParams(params),
+        body: new URLSearchParams({
+            code,
+            client_id: process.env.GOOGLE_CLIENT_ID!,
+            client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+            redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL}/api/google/callback`,
+            grant_type: 'authorization_code',
+        }),
     })
 
     if (!response.ok) {
@@ -78,8 +68,8 @@ export async function refreshGoogleToken(refreshToken: string): Promise<GoogleTo
             'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
-            client_id: process.env.GOOGLE_CLIENT_ID!.trim(),
-            client_secret: process.env.GOOGLE_CLIENT_SECRET!.trim(),
+            client_id: process.env.GOOGLE_CLIENT_ID!,
+            client_secret: process.env.GOOGLE_CLIENT_SECRET!,
             refresh_token: refreshToken,
             grant_type: 'refresh_token',
         }),

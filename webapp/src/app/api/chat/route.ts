@@ -3,6 +3,16 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { clickUpOperations } from '@/lib/clickup'
 import { sendEmail, refreshGoogleToken } from '@/lib/google'
+import {
+  createAutomation,
+  getAutomations,
+  deleteAutomation,
+  updateAutomationStatus,
+  getWebhookUrl,
+  generateAutomationSummary,
+} from '@/lib/automations'
+import { setupGmailWatch } from '@/lib/gmail-watch'
+import { CreateAutomationInput } from '@/lib/types'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -295,17 +305,157 @@ const tools: Anthropic.Tool[] = [
       },
       required: ['task_id', 'field_id', 'value'],
     },
-  }
+  },
+  // ========== AUTOMATION TOOLS ==========
+  {
+    name: 'create_automation',
+    description: `Create a background automation that runs automatically when triggered. Use this when the user asks to create automations like "whenever I get an email from X, create a task" or "automatically create tasks for emails from Y".
+
+IMPORTANT: Before creating an automation, you MUST:
+1. First get the ClickUp workspace hierarchy (workspaces -> spaces -> lists) to find the correct list_id
+2. Confirm with the user which list they want tasks created in
+3. Then create the automation with the correct list_id
+
+The automation will run in the background without user intervention.`,
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        name: {
+          type: 'string',
+          description: 'A short descriptive name for the automation (e.g., "Email from John -> Task")',
+        },
+        description: {
+          type: 'string',
+          description: 'A longer description of what this automation does',
+        },
+        trigger_type: {
+          type: 'string',
+          enum: ['gmail_email', 'gmail_label', 'schedule'],
+          description: 'The type of trigger. Use gmail_email for "when I receive an email..."',
+        },
+        trigger_config: {
+          type: 'object',
+          description: `Configuration for the trigger. For gmail_email: { from_filter?: string, to_filter?: string, subject_contains?: string, has_attachment?: boolean }`,
+          properties: {
+            from_filter: {
+              type: 'string',
+              description: 'Filter emails from this sender (partial match)',
+            },
+            to_filter: {
+              type: 'string',
+              description: 'Filter emails sent to this address (partial match)',
+            },
+            subject_contains: {
+              type: 'string',
+              description: 'Filter emails with subject containing this text',
+            },
+            has_attachment: {
+              type: 'boolean',
+              description: 'Filter emails that have attachments',
+            },
+          },
+        },
+        action_type: {
+          type: 'string',
+          enum: ['clickup_create_task', 'clickup_add_comment', 'send_email'],
+          description: 'The type of action to perform when triggered',
+        },
+        action_config: {
+          type: 'object',
+          description: `Configuration for the action. For clickup_create_task: { list_id: string, list_name?: string, title_template: string, description_template?: string, priority?: number }.
+
+Use template variables like {{email.subject}}, {{email.from}}, {{email.body}}, {{email.snippet}} in templates.`,
+          properties: {
+            list_id: {
+              type: 'string',
+              description: 'The ClickUp list ID where tasks will be created (REQUIRED - get this from get_lists)',
+            },
+            list_name: {
+              type: 'string',
+              description: 'Human-readable name of the list (for display purposes)',
+            },
+            title_template: {
+              type: 'string',
+              description: 'Template for task title. Use {{email.subject}} for email subject, etc.',
+            },
+            description_template: {
+              type: 'string',
+              description: 'Template for task description. Use {{email.body}}, {{email.from}}, etc.',
+            },
+            priority: {
+              type: 'number',
+              description: 'Task priority (1=urgent, 2=high, 3=normal, 4=low)',
+            },
+          },
+          required: ['list_id', 'title_template'],
+        },
+      },
+      required: ['name', 'trigger_type', 'trigger_config', 'action_type', 'action_config'],
+    },
+  },
+  {
+    name: 'list_automations',
+    description: 'List all automations the user has created. Shows their status, last run time, and configuration.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'pause_automation',
+    description: 'Pause an automation so it stops running. Use this when user wants to temporarily disable an automation.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        automation_id: {
+          type: 'string',
+          description: 'The ID of the automation to pause',
+        },
+      },
+      required: ['automation_id'],
+    },
+  },
+  {
+    name: 'resume_automation',
+    description: 'Resume a paused automation so it starts running again.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        automation_id: {
+          type: 'string',
+          description: 'The ID of the automation to resume',
+        },
+      },
+      required: ['automation_id'],
+    },
+  },
+  {
+    name: 'delete_automation',
+    description: 'Permanently delete an automation. This cannot be undone.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        automation_id: {
+          type: 'string',
+          description: 'The ID of the automation to delete',
+        },
+      },
+      required: ['automation_id'],
+    },
+  },
 ]
 
 // Execute a tool call
 async function executeTool(
   toolName: string,
   toolInput: Record<string, unknown>,
-  profile: any
+  profile: { clickup_access_token?: string; google_access_token?: string; google_refresh_token?: string },
+  userId: string,
+  supabase: Awaited<ReturnType<typeof createClient>>
 ): Promise<string> {
   try {
-    const accessToken = profile.clickup_access_token
+    const accessToken = profile.clickup_access_token || ''
 
     switch (toolName) {
       case 'send_email': {
@@ -468,6 +618,110 @@ async function executeTool(
         )
         return JSON.stringify(result, null, 2)
       }
+      // ========== AUTOMATION TOOL HANDLERS ==========
+      case 'create_automation': {
+        if (!profile.google_access_token) {
+          throw new Error('Gmail is not connected. Please connect Gmail first to create email-based automations.')
+        }
+
+        const automationInput = {
+          name: toolInput.name as string,
+          description: toolInput.description as string | undefined,
+          trigger_type: toolInput.trigger_type,
+          trigger_config: toolInput.trigger_config,
+          action_type: toolInput.action_type,
+          action_config: toolInput.action_config,
+        } as CreateAutomationInput
+
+        // Create the automation
+        const automation = await createAutomation(supabase, userId, automationInput)
+
+        // If this is a Gmail trigger, set up the Gmail watch
+        if (automation.trigger_type.startsWith('gmail_')) {
+          try {
+            await setupGmailWatch(
+              supabase,
+              automation.id,
+              profile.google_access_token,
+              profile.google_refresh_token || null
+            )
+          } catch (watchError) {
+            // Update automation status to indicate setup issue
+            await updateAutomationStatus(supabase, automation.id, 'error')
+            return JSON.stringify({
+              success: false,
+              error: 'Automation created but Gmail watch setup failed. This may be due to Gmail API permissions. Please reconnect Gmail with the required permissions.',
+              automation_id: automation.id,
+            })
+          }
+        }
+
+        return JSON.stringify({
+          success: true,
+          message: `Automation "${automation.name}" created successfully!`,
+          automation: {
+            id: automation.id,
+            name: automation.name,
+            status: automation.status,
+            summary: generateAutomationSummary(automation),
+            webhook_url: automation.webhook_id ? getWebhookUrl(automation.webhook_id) : null,
+          },
+        })
+      }
+      case 'list_automations': {
+        const automations = await getAutomations(supabase, userId)
+
+        if (automations.length === 0) {
+          return JSON.stringify({
+            message: 'No automations found. You can create one by asking me to set up an automation.',
+            automations: [],
+          })
+        }
+
+        const formattedAutomations = automations.map((a) => ({
+          id: a.id,
+          name: a.name,
+          status: a.status,
+          summary: generateAutomationSummary(a),
+          last_run: a.last_run_at,
+          run_count: a.run_count,
+          last_error: a.last_error,
+        }))
+
+        return JSON.stringify({
+          message: `Found ${automations.length} automation(s)`,
+          automations: formattedAutomations,
+        }, null, 2)
+      }
+      case 'pause_automation': {
+        const automation = await updateAutomationStatus(
+          supabase,
+          toolInput.automation_id as string,
+          'paused'
+        )
+        return JSON.stringify({
+          success: true,
+          message: `Automation "${automation.name}" has been paused.`,
+        })
+      }
+      case 'resume_automation': {
+        const automation = await updateAutomationStatus(
+          supabase,
+          toolInput.automation_id as string,
+          'active'
+        )
+        return JSON.stringify({
+          success: true,
+          message: `Automation "${automation.name}" has been resumed and is now active.`,
+        })
+      }
+      case 'delete_automation': {
+        await deleteAutomation(supabase, toolInput.automation_id as string)
+        return JSON.stringify({
+          success: true,
+          message: 'Automation has been permanently deleted.',
+        })
+      }
       default:
         return JSON.stringify({ error: `Unknown tool: ${toolName}` })
     }
@@ -504,17 +758,34 @@ export async function POST(request: NextRequest) {
 
     const { messages } = await request.json()
 
+    const systemPrompt = `You are a helpful assistant that helps users manage their ClickUp workspace and create automations.
+
+## Your Capabilities:
+1. **ClickUp Management**: Get/create workspaces, spaces, folders, lists, and tasks
+2. **Email**: Send emails via Gmail and log them to ClickUp tasks
+3. **Background Automations**: Create automations that run automatically (e.g., "when I get an email from X, create a task")
+
+## Automation Guidelines:
+When a user asks to create an automation (e.g., "whenever I get an email from...", "automatically create a task when..."):
+1. FIRST use get_workspaces, then get_spaces, then get_lists to find the correct list_id
+2. Ask the user to confirm which list they want tasks created in
+3. Then use create_automation with the correct list_id
+
+Available automation triggers: gmail_email (filter by sender, subject, attachments)
+Available automation actions: clickup_create_task, send_email
+
+Template variables for email triggers: {{email.subject}}, {{email.from}}, {{email.to}}, {{email.body}}, {{email.snippet}}
+
+## General Guidelines:
+- Always be helpful and proactive in using tools
+- Format output nicely for readability
+- If you need workspace/team ID first, call get_workspaces`
+
     // Initial Claude call
     let response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
-      system: `You are a helpful assistant that helps users manage their ClickUp workspace.
-You have access to tools that can interact with ClickUp to get information and perform actions.
-You also have the ability to send emails via Gmail.
-When asked to send an email, use the send_email tool. This tool will automatically log the email to the specified ClickUp task.
-Always be helpful and proactive in using the tools to accomplish what the user asks.
-When listing items, format them nicely for readability.
-If you need to know the workspace/team ID first, call get_workspaces to find it.`,
+      system: systemPrompt,
       tools,
       messages,
     })
@@ -530,7 +801,9 @@ If you need to know the workspace/team ID first, call get_workspaces to find it.
           const result = await executeTool(
             toolUse.name,
             toolUse.input as Record<string, unknown>,
-            profile
+            profile,
+            user.id,
+            supabase
           )
           return {
             type: 'tool_result' as const,
@@ -544,13 +817,7 @@ If you need to know the workspace/team ID first, call get_workspaces to find it.
       response = await anthropic.messages.create({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 4096,
-        system: `You are a helpful assistant that helps users manage their ClickUp workspace.
-You have access to tools that can interact with ClickUp to get information and perform actions.
-You also have the ability to send emails via Gmail.
-When asked to send an email, use the send_email tool. This tool will automatically log the email to the specified ClickUp task.
-Always be helpful and proactive in using the tools to accomplish what the user asks.
-When listing items, format them nicely for readability.
-If you need to know the workspace/team ID first, call get_workspaces to find it.`,
+        system: systemPrompt,
         tools,
         messages: [
           ...messages,

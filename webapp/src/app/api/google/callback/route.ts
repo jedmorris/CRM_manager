@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     } catch (error) {
         console.error('Google auth error:', error)
         return NextResponse.json(
-            { error: error instanceof Error ? error.message : 'Failed to authenticate with Google' },
+            { error: 'Failed to authenticate with Google' },
             { status: 500 }
         )
     }

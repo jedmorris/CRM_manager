@@ -188,3 +188,9 @@ export const clickUpOperations = {
     })
   },
 }
+
+// Convenience exports for direct use
+export const createTask = clickUpOperations.createTask
+export const getWorkspaces = clickUpOperations.getWorkspaces
+export const getSpaces = clickUpOperations.getSpaces
+export const getLists = clickUpOperations.getLists

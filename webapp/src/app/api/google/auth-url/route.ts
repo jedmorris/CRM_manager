@@ -6,9 +6,8 @@ export async function GET() {
         const url = getGoogleAuthUrl()
         return NextResponse.json({ url })
     } catch (error) {
-        console.error('Error generating Google auth URL:', error)
         return NextResponse.json(
-            { error: error instanceof Error ? error.message : 'Failed to generate auth URL' },
+            { error: 'Failed to generate auth URL' },
             { status: 500 }
         )
     }

@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { ChatMessage } from '@/lib/types'
+import AutomationsList from '@/components/AutomationsList'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -60,25 +61,15 @@ export default function Dashboard() {
   }
 
   const connectClickUp = async () => {
-    try {
-      const response = await fetch('/api/clickup/auth-url')
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to get auth URL')
-      window.location.href = data.url
-    } catch (error) {
-      alert(error instanceof Error ? error.message : 'An error occurred')
-    }
+    const response = await fetch('/api/clickup/auth-url')
+    const { url } = await response.json()
+    window.location.href = url
   }
 
   const connectGmail = async () => {
-    try {
-      const response = await fetch('/api/google/auth-url')
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to get auth URL')
-      window.location.href = data.url
-    } catch (error) {
-      alert(error instanceof Error ? error.message : 'An error occurred')
-    }
+    const response = await fetch('/api/google/auth-url')
+    const { url } = await response.json()
+    window.location.href = url
   }
 
   const handleSignOut = async () => {
@@ -144,109 +135,119 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-white text-xl">Loading...</div>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-4 border-accent border-t-transparent animate-spin"></div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
-      {/* Header */}
-      <header className="bg-gray-800 border-b border-gray-700 px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-white">
-            ClickUp CRM Automation
-          </h1>
-          <div className="flex items-center gap-4">
-            {clickUpConnected ? (
-              <div className="flex items-center gap-2 text-green-400">
-                <span className="w-2 h-2 bg-green-400 rounded-full"></span>
-                <span className="text-sm">Connected as {clickUpUsername}</span>
-              </div>
-            ) : (
-              <button
-                onClick={connectClickUp}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg transition-colors"
-              >
-                Connect ClickUp
-              </button>
-            )}
-
-            {gmailConnected ? (
-              <div className="flex items-center gap-2 text-green-400">
-                <span className="w-2 h-2 bg-green-400 rounded-full"></span>
-                <span className="text-sm">{gmailEmail}</span>
-              </div>
-            ) : (
-              <button
-                onClick={connectGmail}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
-              >
-                Connect Gmail
-              </button>
-            )}
-            <button
-              onClick={handleSignOut}
-              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors"
-            >
-              Sign Out
-            </button>
+    <div className="min-h-screen bg-background text-foreground flex flex-col font-sans selection:bg-accent selection:text-black">
+      {/* Navbar */}
+      <nav className="border-b border-border/50 bg-background/50 backdrop-blur-xl sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-6 bg-accent rounded-sm skew-x-[-12deg]"></div>
+            <span className="font-bold text-xl tracking-tight">CRM<span className="text-gray-500 font-normal">Manager</span></span>
           </div>
+          <button
+            onClick={handleSignOut}
+            className="text-sm font-medium hover:text-white text-gray-400 transition-colors"
+          >
+            Sign Out
+          </button>
         </div>
-      </header>
+      </nav>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col max-w-4xl mx-auto w-full p-6">
-        {!clickUpConnected ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div className="text-6xl mb-6">🔗</div>
-              <h2 className="text-2xl font-semibold text-white mb-4">
-                Connect Your ClickUp Account
-              </h2>
-              <p className="text-gray-400 mb-8 max-w-md">
-                To start automating your CRM, connect your ClickUp account.
-                We'll use secure OAuth to access your workspace.
+      <main className="flex-1 max-w-7xl mx-auto w-full p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        {/* Left Sidebar / Status Panel */}
+        <div className="lg:col-span-3 space-y-6">
+          {/* Status Cards (Bento Grid) */}
+          <div className="grid gap-4">
+            {/* ClickUp Card */}
+            <div className="bg-card border border-border p-5 rounded-3xl flex flex-col gap-4 relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                <svg className="w-16 h-16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zm0 9l2.5-1.25L12 8.5l-2.5 1.25L12 11zm0 2.5l-5-2.5-5 2.5L12 22l10-8.5-5-2.5-5 2.5z" /></svg>
+              </div>
+              <div className="flex items-center justify-between z-10">
+                <h3 className="font-semibold text-lg">ClickUp</h3>
+                {clickUpConnected && <span className="w-2 h-2 rounded-full bg-accent shadow-[0_0_10px_#CCFF00]"></span>}
+              </div>
+              <p className="text-gray-400 text-sm z-10 min-h-[40px]">
+                {clickUpConnected ? `Connected as ${clickUpUsername}` : 'Manage tasks & lists'}
               </p>
-              <button
-                onClick={connectClickUp}
-                className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-colors"
-              >
-                Connect ClickUp Account
-              </button>
+              {!clickUpConnected ? (
+                <button
+                  onClick={connectClickUp}
+                  className="w-full py-3 rounded-full bg-white text-black font-semibold text-sm hover:scale-[1.02] transition-transform active:scale-95"
+                >
+                  Connect
+                </button>
+              ) : (
+                <div className="h-10 flex items-center text-sm text-accent font-medium">
+                  ✓ Active
+                </div>
+              )}
+            </div>
+
+            {/* Gmail Card */}
+            <div className="bg-card border border-border p-5 rounded-3xl flex flex-col gap-4 relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                <svg className="w-16 h-16" fill="currentColor" viewBox="0 0 24 24"> <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" /> </svg>
+              </div>
+              <div className="flex items-center justify-between z-10">
+                <h3 className="font-semibold text-lg">Gmail</h3>
+                {gmailConnected && <span className="w-2 h-2 rounded-full bg-accent shadow-[0_0_10px_#CCFF00]"></span>}
+              </div>
+              <p className="text-gray-400 text-sm z-10 min-h-[40px]">
+                {gmailConnected ? `Connected as ${gmailEmail}` : 'Send emails & logs'}
+              </p>
+              {!gmailConnected ? (
+                <button
+                  onClick={connectGmail}
+                  className="w-full py-3 rounded-full bg-white text-black font-semibold text-sm hover:scale-[1.02] transition-transform active:scale-95"
+                >
+                  Connect
+                </button>
+              ) : (
+                <div className="h-10 flex items-center text-sm text-accent font-medium">
+                  ✓ Active
+                </div>
+              )}
             </div>
           </div>
-        ) : (
-          <>
-            {/* Chat Messages */}
-            <div className="flex-1 overflow-y-auto mb-4 space-y-4">
+
+          {/* Automations Panel */}
+          {clickUpConnected && gmailConnected && (
+            <AutomationsList />
+          )}
+        </div>
+
+        {/* Main Chat Area */}
+        <div className="lg:col-span-9 flex flex-col h-[calc(100vh-8rem)]">
+          <div className="flex-1 bg-card border border-border rounded-[2rem] p-4 flex flex-col relative overflow-hidden">
+
+            {/* Messages Area */}
+            <div className="flex-1 overflow-y-auto space-y-6 px-4 py-4 scrollbar-hide">
               {messages.length === 0 ? (
-                <div className="text-center py-20">
-                  <div className="text-5xl mb-4">💬</div>
-                  <h2 className="text-xl font-semibold text-white mb-2">
-                    Start a Conversation
-                  </h2>
-                  <p className="text-gray-400 max-w-md mx-auto">
-                    Ask me to help you manage your ClickUp CRM. For example:
-                  </p>
-                  <div className="mt-4 space-y-2 text-gray-500 text-sm">
-                    <p>"Show me all my workspaces"</p>
-                    <p>"Create a task called 'Follow up with client' in my Sales list"</p>
-                    <p>"What tasks are due this week?"</p>
+                <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
+                  <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mb-6">
+                    <span className="text-3xl">✨</span>
                   </div>
+                  <h3 className="text-xl font-medium mb-2">How can I help you?</h3>
+                  <p className="text-sm max-w-sm">Try asking to "Check my tasks", "Email John about the project", or "Create an automation when I get emails from..."</p>
                 </div>
               ) : (
                 messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'
-                      }`}
+                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     <div
-                      className={`max-w-[80%] px-4 py-3 rounded-2xl ${message.role === 'user'
-                        ? 'bg-purple-600 text-white'
-                        : 'bg-gray-800 text-gray-100'
+                      className={`max-w-[85%] px-6 py-4 rounded-2xl text-[15px] leading-relaxed ${message.role === 'user'
+                          ? 'bg-white text-black rounded-br-sm font-medium'
+                          : 'bg-[#1a1a1a] text-gray-200 border border-border rounded-bl-sm'
                         }`}
                     >
                       <p className="whitespace-pre-wrap">{message.content}</p>
@@ -256,38 +257,46 @@ export default function Dashboard() {
               )}
               {sending && (
                 <div className="flex justify-start">
-                  <div className="bg-gray-800 text-gray-400 px-4 py-3 rounded-2xl">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                    </div>
+                  <div className="px-6 py-4 rounded-2xl bg-[#1a1a1a] border border-border rounded-bl-sm flex gap-2 items-center">
+                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce delay-100"></div>
+                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce delay-200"></div>
                   </div>
                 </div>
               )}
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Form */}
-            <form onSubmit={sendMessage} className="flex gap-3">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Type your message..."
-                className="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
-                disabled={sending}
-              />
-              <button
-                type="submit"
-                disabled={sending || !input.trim()}
-                className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            {/* Input Floating Bar */}
+            <div className="p-4 pt-2">
+              <form
+                onSubmit={sendMessage}
+                className="relative flex items-center gap-2 bg-[#050505] border border-border p-2 rounded-full shadow-2xl shadow-black/50 transition-all focus-within:border-gray-500"
               >
-                Send
-              </button>
-            </form>
-          </>
-        )}
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Ask anything..."
+                  className="flex-1 bg-transparent border-none text-white px-6 py-3 focus:outline-none placeholder-gray-600 font-medium"
+                  disabled={sending}
+                />
+                <button
+                  type="submit"
+                  disabled={sending || !input.trim()}
+                  className="p-3 bg-accent text-black rounded-full hover:brightness-110 disabled:opacity-50 disabled:grayscale transition-all active:scale-95"
+                >
+                  <svg className="w-5 h-5 translate-x-px" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                  </svg>
+                </button>
+              </form>
+            </div>
+
+          </div>
+        </div>
+
       </main>
     </div>
   )
