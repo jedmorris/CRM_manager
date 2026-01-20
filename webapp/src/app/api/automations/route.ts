@@ -10,8 +10,8 @@ import {
   getAutomationById,
 } from '@/lib/automations'
 import { setupGmailWatch, stopGmailWatch } from '@/lib/gmail-watch'
-import { removeClickUpWebhookForAutomation } from '@/lib/clickup-webhooks'
-import { CreateAutomationInput, AutomationStatus } from '@/lib/types'
+import { setupClickUpWebhookForAutomation, removeClickUpWebhookForAutomation } from '@/lib/clickup-webhooks'
+import { CreateAutomationInput, AutomationStatus, ClickUpTaskTriggerConfig } from '@/lib/types'
 
 // GET /api/automations - List all automations for the current user
 export async function GET() {
@@ -94,6 +94,49 @@ export async function POST(request: NextRequest) {
       } else {
         return NextResponse.json(
           { error: 'Gmail not connected. Please connect Gmail first.' },
+          { status: 400 }
+        )
+      }
+    }
+
+    // If this is a ClickUp trigger, set up the ClickUp webhook
+    if (automation.trigger_type.startsWith('clickup_')) {
+      // Get user's ClickUp token
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('clickup_access_token')
+        .eq('id', user.id)
+        .single()
+
+      if (profile?.clickup_access_token) {
+        if (!automation.webhook_id) {
+          console.error('Automation created without webhook_id')
+          return NextResponse.json(
+            { error: 'Internal error: automation webhook ID missing' },
+            { status: 500 }
+          )
+        }
+
+        try {
+          await setupClickUpWebhookForAutomation(
+            supabase,
+            automation.id,
+            automation.webhook_id,
+            profile.clickup_access_token,
+            automation.trigger_config as ClickUpTaskTriggerConfig
+          )
+        } catch (webhookError) {
+          console.error('Failed to setup ClickUp webhook:', webhookError)
+          // Update automation status to indicate setup issue
+          await updateAutomationStatus(supabase, automation.id, 'error')
+          return NextResponse.json({
+            automation,
+            warning: 'Automation created but ClickUp webhook setup failed. Please check your ClickUp connection.',
+          })
+        }
+      } else {
+        return NextResponse.json(
+          { error: 'ClickUp not connected. Please connect ClickUp first.' },
           { status: 400 }
         )
       }
