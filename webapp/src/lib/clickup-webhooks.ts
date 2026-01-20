@@ -288,6 +288,21 @@ export async function removeClickUpWebhookForAutomation(
 }
 
 /**
+ * Formats a date into a human-readable string.
+ */
+function formatTimestamp(date: Date): string {
+  return date.toLocaleString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+}
+
+/**
  * Extracts relevant data from a ClickUp webhook payload for use in templates.
  */
 export function extractClickUpTaskData(payload: ClickUpWebhookPayload): {
@@ -306,11 +321,13 @@ export function extractClickUpTaskData(payload: ClickUpWebhookPayload): {
     space_name: string
   }
   event: string
+  timestamp: string
   changes: Array<{
     field: string
     before: string
     after: string
     user: string
+    timestamp: string
   }>
 } {
   const task = payload.task || {
@@ -328,13 +345,23 @@ export function extractClickUpTaskData(payload: ClickUpWebhookPayload): {
     space: { name: 'Unknown' },
   }
 
-  // Extract changes from history items
-  const changes = (payload.history_items || []).map((item) => ({
-    field: item.field,
-    before: String(item.before ?? ''),
-    after: String(item.after ?? ''),
-    user: item.user?.username || 'unknown',
-  }))
+  // Extract changes from history items with timestamps
+  const changes = (payload.history_items || []).map((item) => {
+    const changeDate = item.date ? new Date(parseInt(item.date)) : new Date()
+    return {
+      field: item.field,
+      before: String(item.before ?? ''),
+      after: String(item.after ?? ''),
+      user: item.user?.username || 'unknown',
+      timestamp: formatTimestamp(changeDate),
+    }
+  })
+
+  // Get the most recent change timestamp, or use current time
+  const mostRecentChange = payload.history_items?.[0]
+  const updateTime = mostRecentChange?.date
+    ? new Date(parseInt(mostRecentChange.date))
+    : new Date()
 
   return {
     task: {
@@ -352,6 +379,7 @@ export function extractClickUpTaskData(payload: ClickUpWebhookPayload): {
       space_name: task.space?.name || '',
     },
     event: payload.event,
+    timestamp: formatTimestamp(updateTime),
     changes,
   }
 }

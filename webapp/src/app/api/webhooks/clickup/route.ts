@@ -95,6 +95,7 @@ export async function POST(request: NextRequest) {
     const triggerData = {
       task: taskData.task,
       event: taskData.event,
+      timestamp: taskData.timestamp,
       changes: taskData.changes,
       change_summary: changeSummary,
     }
@@ -117,6 +118,7 @@ async function executeClickUpAutomation(
   triggerData: {
     task: ReturnType<typeof extractClickUpTaskData>['task']
     event: string
+    timestamp: string
     changes: ReturnType<typeof extractClickUpTaskData>['changes']
     change_summary: string
   }
