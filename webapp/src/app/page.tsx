@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { FAQItem } from '@/components/FAQItem'
 
 function HomeContent() {
   /* Auth Logic & State */
@@ -355,10 +356,7 @@ function HomeContent() {
               { q: "Is my data secure?", a: "Yes. All data transmission is encrypted end-to-end (TLS 1.3). We never store your email or calendar content—only the task metadata needed to update ClickUp." },
               { q: "Can I use this with ClickUp 3.0?", a: "Absolutely. CRM Manager is fully compatible with ClickUp 3.0, including custom fields, relationships, and the new task view." }
             ].map((item, i) => (
-              <div key={i} className="group">
-                <h3 className="font-bold text-lg mb-2 group-hover:text-accent transition-colors cursor-default">{item.q}</h3>
-                <p className="text-gray-400 leading-relaxed">{item.a}</p>
-              </div>
+              <FAQItem key={i} question={item.q} answer={item.a} />
             ))}
           </div>
         </div>

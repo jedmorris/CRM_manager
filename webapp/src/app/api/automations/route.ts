@@ -7,8 +7,10 @@ import {
   updateAutomationStatus,
   getWebhookUrl,
   generateAutomationSummary,
+  getAutomationById,
 } from '@/lib/automations'
-import { setupGmailWatch } from '@/lib/gmail-watch'
+import { setupGmailWatch, stopGmailWatch } from '@/lib/gmail-watch'
+import { removeClickUpWebhookForAutomation } from '@/lib/clickup-webhooks'
 import { CreateAutomationInput, AutomationStatus } from '@/lib/types'
 
 // GET /api/automations - List all automations for the current user
@@ -131,6 +133,48 @@ export async function DELETE(request: NextRequest) {
         { error: 'Missing automation ID' },
         { status: 400 }
       )
+    }
+
+    // Get the automation to check its type and clean up external resources
+    const automation = await getAutomationById(supabase, automationId)
+
+    if (automation) {
+      // Get user's tokens for cleanup
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('clickup_access_token, google_access_token')
+        .eq('id', user.id)
+        .single()
+
+      // Clean up ClickUp webhook if this is a ClickUp-triggered automation
+      if (automation.trigger_type.startsWith('clickup_') && automation.clickup_webhook_id) {
+        if (profile?.clickup_access_token) {
+          try {
+            await removeClickUpWebhookForAutomation(
+              supabase,
+              automationId,
+              profile.clickup_access_token
+            )
+            console.log(`Cleaned up ClickUp webhook for automation ${automationId}`)
+          } catch (webhookError) {
+            // Log but don't fail - the webhook might already be gone
+            console.error('Failed to clean up ClickUp webhook:', webhookError)
+          }
+        }
+      }
+
+      // Stop Gmail watch if this is a Gmail-triggered automation
+      if (automation.trigger_type.startsWith('gmail_')) {
+        if (profile?.google_access_token) {
+          try {
+            await stopGmailWatch(profile.google_access_token)
+            console.log(`Stopped Gmail watch for automation ${automationId}`)
+          } catch (watchError) {
+            // Log but don't fail - the watch might already be stopped
+            console.error('Failed to stop Gmail watch:', watchError)
+          }
+        }
+      }
     }
 
     await deleteAutomation(supabase, automationId)

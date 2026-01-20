@@ -23,6 +23,9 @@
 - [x] ClickUp → Email automations (task updated → send notification)
 - [x] Automation management (create, pause, resume, delete)
 - [x] Template variables for dynamic content
+- [x] Gmail watch auto-renewal (cron job)
+- [x] ClickUp webhook cleanup on delete
+- [x] Pub/Sub setup documentation
 
 ### Web UI
 - [x] Dashboard with connection status
@@ -109,13 +112,22 @@ Let users insert booking links and check availability via chat.
 
 ## Technical Debt
 
-| Item | Impact | Effort |
-|------|--------|--------|
-| Add rate limiting to webhook handlers | Medium | Low |
-| Implement webhook retry queue | Medium | Medium |
-| Add comprehensive error logging | High | Low |
-| Write integration tests for automations | High | Medium |
-| Document API endpoints | Low | Low |
+| Item | Impact | Effort | Status |
+|------|--------|--------|--------|
+| Add rate limiting to webhook handlers | Medium | Low | Not started |
+| Implement webhook retry queue | Medium | Medium | Not started |
+| Add comprehensive error logging | High | Low | Not started |
+| Write integration tests for automations | High | Medium | Not started |
+| Document API endpoints | Low | Low | Not started |
+
+---
+
+## Recently Completed Fixes
+
+### Automations Reliability (2025-01-16)
+- **Gmail watch renewal**: Added `/api/cron/renew-gmail-watches` endpoint with Vercel cron config
+- **Webhook cleanup**: DELETE handler now removes ClickUp webhooks and stops Gmail watches
+- **Pub/Sub documentation**: Created `directives/gmail_pubsub_setup.md` with full setup guide
 
 ---
 

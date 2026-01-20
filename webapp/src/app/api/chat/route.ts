@@ -524,28 +524,50 @@ async function executeTool(
       }
       case 'get_workspaces': {
         const result = await clickUpOperations.getWorkspaces(accessToken)
-        return JSON.stringify(result, null, 2)
+        // Optimize token usage: only return essential fields
+        const teams = result.teams.map((t: any) => ({
+          id: t.id,
+          name: t.name
+        }))
+        return JSON.stringify({ teams }, null, 2)
       }
       case 'get_spaces': {
         const result = await clickUpOperations.getSpaces(
           accessToken,
           toolInput.team_id as string
         )
-        return JSON.stringify(result, null, 2)
+        // Optimize token usage
+        const spaces = result.spaces.map((s: any) => ({
+          id: s.id,
+          name: s.name
+        }))
+        return JSON.stringify({ spaces }, null, 2)
       }
       case 'get_lists': {
         const result = await clickUpOperations.getLists(
           accessToken,
           toolInput.space_id as string
         )
-        return JSON.stringify(result, null, 2)
+        // Optimize token usage
+        const lists = result.lists.map((l: any) => ({
+          id: l.id,
+          name: l.name
+        }))
+        return JSON.stringify({ lists }, null, 2)
       }
       case 'get_tasks': {
         const result = await clickUpOperations.getTasks(
           accessToken,
           toolInput.list_id as string
         )
-        return JSON.stringify(result, null, 2)
+        // Optimize token usage
+        const tasks = result.tasks.map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          status: t.status?.status,
+          url: t.url
+        }))
+        return JSON.stringify({ tasks }, null, 2)
       }
       case 'get_task': {
         const result = await clickUpOperations.getTask(
@@ -594,7 +616,14 @@ async function executeTool(
           toolInput.team_id as string,
           toolInput.query as string
         )
-        return JSON.stringify(result, null, 2)
+        // Optimize token usage
+        const tasks = result.tasks.map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          status: t.status?.status,
+          url: t.url
+        }))
+        return JSON.stringify({ tasks }, null, 2)
       }
       case 'create_space': {
         const result = await clickUpOperations.createSpace(
@@ -823,6 +852,17 @@ export async function POST(request: NextRequest) {
 
     const { messages } = await request.json()
 
+    // Truncate messages to prevent rate limits (keep last 20 non-system messages)
+    // We ensure we start with a 'user' message to avoid orphaned tool results
+    let recentMessages = messages
+    if (messages.length > 20) {
+      recentMessages = messages.slice(-20)
+      // Ensure we start with a user message to maintain conversation integrity
+      while (recentMessages.length > 0 && recentMessages[0].role !== 'user') {
+        recentMessages.shift()
+      }
+    }
+
     const systemPrompt = `You are a helpful assistant that helps users manage their ClickUp workspace and create automations.
 
 ## Your Capabilities:
@@ -900,7 +940,7 @@ Steps:
       max_tokens: 4096,
       system: systemPrompt,
       tools,
-      messages,
+      messages: recentMessages,
     })
 
     // Handle tool use in a loop
@@ -933,7 +973,7 @@ Steps:
         system: systemPrompt,
         tools,
         messages: [
-          ...messages,
+          ...recentMessages,
           { role: 'assistant', content: response.content },
           { role: 'user', content: toolResults },
         ],
