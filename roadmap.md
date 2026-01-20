@@ -32,14 +32,17 @@
 - [x] Chat interface with Claude
 - [x] Automations list view
 
+### Gmail on Autopilot (v1.1)
+- [x] Reply detection (`isReply`, `inReplyTo`, `references` fields)
+- [x] Thread context (`getThreadContext()` with full conversation history)
+- [x] Improved email parsing (HTML body, attachment metadata)
+- [x] New trigger filter: `is_reply` to filter replies vs new emails
+
 ---
 
 ## In Progress
 
-### Gmail on Autopilot (v1.1)
-- [ ] Improved email parsing and extraction
-- [ ] Email thread context in automations
-- [ ] Reply detection and handling
+*Nothing currently in progress*
 
 ---
 
@@ -124,6 +127,13 @@ Let users insert booking links and check availability via chat.
 
 ## Recently Completed Fixes
 
+### Gmail on Autopilot v1.1 (2025-01-19)
+- **Reply detection**: `isReply`, `inReplyTo`, `references` fields in email data
+- **Thread context**: New `getThreadContext()` function with full conversation history
+- **HTML body**: Extract HTML version of emails alongside plain text
+- **Attachment metadata**: Full attachment info (filename, mimeType, size, attachmentId)
+- **New filter**: `is_reply` trigger config to filter replies vs new emails
+
 ### Automations Reliability (2025-01-16)
 - **Gmail watch renewal**: Added `/api/cron/renew-gmail-watches` endpoint with Vercel cron config
 - **Webhook cleanup**: DELETE handler now removes ClickUp webhooks and stops Gmail watches
@@ -138,4 +148,4 @@ Let users insert booking links and check availability via chat.
 3. **Completing work**: Move to Completed with date
 4. **Prioritization**: High = blocks user value, Medium = improves UX, Low = nice to have
 
-Last updated: 2025-01-16
+Last updated: 2025-01-19

@@ -68,6 +68,7 @@ export interface GmailEmailTriggerConfig {
   to_filter?: string
   subject_contains?: string
   has_attachment?: boolean
+  is_reply?: boolean // Filter for replies only (true) or new emails only (false)
   label_ids?: string[]
 }
 

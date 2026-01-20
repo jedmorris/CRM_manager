@@ -5,6 +5,7 @@ import {
   getNewMessagesSinceHistoryId,
   extractEmailData,
   emailMatchesTrigger,
+  getThreadContext,
 } from '@/lib/gmail-watch'
 import { processTemplate } from '@/lib/automations'
 import { createTask } from '@/lib/clickup'
@@ -150,8 +151,18 @@ async function handleGmailPushNotification(body: { message: { data: string } }) 
           continue
         }
 
-        // Execute the automation action
-        const result = await executeAutomation(automation, { email: emailData })
+        // Fetch thread context for richer automation data
+        const threadContext = await getThreadContext(
+          profile.google_access_token,
+          emailData.threadId,
+          emailData.id
+        )
+
+        // Execute the automation action with email and thread data
+        const result = await executeAutomation(automation, {
+          email: emailData,
+          thread: threadContext,
+        })
         results.push(result)
       }
     } catch (error) {
